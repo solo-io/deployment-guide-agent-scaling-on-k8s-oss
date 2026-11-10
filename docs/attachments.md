@@ -52,15 +52,14 @@ kubectl exec -n kagent deployment/kagent-postgresql -c postgresql -- psql -U pos
   "select user_id, count(*) from kagent.runtime_instance where kind = 'agent' and state <> 'RUNTIME_STATE_DELETED' group by 1 order by 1"
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
-{"iss":"http://keycloak.localhost:18080/realms/kagent","aud":"kagent-ui","azp":"kagent-cli","sub":"18eab7bb-3f66-44c5-a332-4b8e6521f11e","preferred_username":"alice","exp":1793691945}
+{"iss":"http://keycloak.localhost:18080/realms/kagent","aud":"kagent-ui","azp":"kagent-cli","sub":"01ef60db-36fe-4306-bb90-40fcdd826940","preferred_username":"alice","exp":1794347688}
 owner: dHJ1c3RlZC1wcm94eTpodHRwOi8va2V5Y2xvYWsubG9jYWxob3N0OjE4MDgwL3JlYWxtcy9rYWdlbnQ.YWxpY2U
 -- session owners in kagent's database:
 admin@kagent.dev 10
-dHJ1c3RlZC1wcm94eTpodHRwOi8va2V5Y2xvYWsubG9jYWxob3N0OjE4MDgwL3JlYWxtcy9rYWdlbnQ.YWxpY2U 9
-dHJ1c3RlZC1wcm94eTpodHRwOi8va2V5Y2xvYWsubG9jYWxob3N0OjE4MDgwL3JlYWxtcy9rYWdlbnQ.Ym9i 2
+dHJ1c3RlZC1wcm94eTpodHRwOi8va2V5Y2xvYWsubG9jYWxob3N0OjE4MDgwL3JlYWxtcy9rYWdlbnQ.YWxpY2U 8
 ```
 
 `aud` holds `kagent-ui` because the `kagent-cli` client's audience mapper puts it there: without
@@ -129,7 +128,7 @@ So the choice is the cluster, not the install:
 This attachment shows what happens on a cluster without them, so you can recognise it.
 
 **Verified on:** a throwaway kind cluster `compat` (kind 0.32.0, `kindest/node:v1.35.0`),
-2026-11-03 07:20 UTC: Up and Running run verbatim through Step 3 with the two blocks below in place
+2026-11-10 21:25 UTC: Up and Running run verbatim through Step 3 with the two blocks below in place
 of the ones they name (`auto-build/run.sh --attachment docs/attachments.md --to install-kagent`).
 
 ### B.1 The cluster (in place of `kind-cluster` and `step-1-certificates-api`)
@@ -153,7 +152,7 @@ kubectl api-resources --api-group=certificates.k8s.io
 kubectl get --raw /metrics | grep -E 'kubernetes_feature_enabled\{name="(ClusterTrustBundle|ClusterTrustBundleProjection|PodCertificateRequest)"'
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
 NAME                         SHORTNAMES   APIVERSION               NAMESPACED   KIND
@@ -172,8 +171,8 @@ the pod certificate controller first, and waits for it. It never becomes ready; 
 the install gives up:
 
 ```text
-Error: failed to install substrate-podcert: failed to run helm: exit status 1: Pulled: ghcr.io/kagent-dev/substrate/helm/substrate-podcert:1.0.0-rc1
-Digest: sha256:e126ed36bba44823b1948a0d72c22eacbc6f880c3a7e0598bbf6ebc19361a59f
+Error: failed to install substrate-podcert: failed to run helm: exit status 1: Pulled: ghcr.io/kagent-dev/substrate/helm/substrate-podcert:1.0.0
+Digest: sha256:b21ec973ad28c9a417ce7167269bdf403a338ce96ff72cd422b5da987f9247cd
 Error: resource Deployment/podcertificate-controller-system/podcertificate-controller not ready. status: InProgress, message: Available: 0/1
 context deadline exceeded: Release "substrate-podcert" does not exist. Installing it now.
 ```
@@ -236,9 +235,10 @@ you (Step 7). Fix: none needed; the guide sends kubectl-ate's warnings to `/dev/
 on.
 
 **C.5 A turn is refused with `input was not accepted; retry after the session becomes
-available`.** *Reproduced (12 turns sent at once to one worker).* Cause: every worker that could
-run the session's actor already runs as many actors as its node has CPUs; Substrate holds the turn
-for about 5 seconds and then refuses it (Step 27). Fix: retry, add workers with nodes to run them
+available`.** *Reproduced on the release candidate (12 turns sent at once to one worker), where
+Substrate held a turn for 5 seconds; this release holds it for up to 60.* Cause: every worker that
+could run the session's actor already runs as many actors as its node has CPUs; Substrate holds the
+turn for up to 60 seconds and then refuses it (Step 27). Fix: retry, add workers with nodes to run them
 (Step 28), or suspend actors that hold a slot without a turn in flight (C.9). Check the workers'
 reservations:
 
@@ -281,7 +281,7 @@ Check its state:
 kubectl get remotemcpserver kagent-api -n kagent -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}' 2>/dev/null || echo "no kagent-api RemoteMCPServer"
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
 Accepted=False DiscoveryFailed: Failed to connect to MCP server: failed to connect MCP client: context deadline exceeded
@@ -311,16 +311,16 @@ kubectl exec -n kagent deployment/kagent-postgresql -c postgresql -- psql -U pos
       printf '%s %s, started by %s: ' "$agent" "$task" "$user"
       token=$(kagent_token "$user" 2>/dev/null) || { echo "no password for ${user} in this shell"; continue; }
       curl -sS --max-time 30 -X POST "http://127.0.0.1:${KAGENT_API_PORT}/agents/kagent/${agent}" \
-        -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' \
+        -H "Authorization: Bearer ${token}" -H 'Content-Type: application/json' -H 'A2A-Version: 1.0' \
         -d "{\"jsonrpc\":\"2.0\",\"id\":\"1\",\"method\":\"CancelTask\",\"params\":{\"id\":\"${task}\"}}" \
         | jq -r '.result.status.state // .error.message'
     done
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
-assistant 01a1a059-586b-75d0-8acf-db35747b831a, started by bob: TASK_STATE_CANCELED
+assistant 01a1c772-1289-701a-be63-c294d38938a5, started by bob: TASK_STATE_CANCELED
 ```
 
 Verified on this release: with the cap set to 1 token, a turn of bob's stayed working. The block,
@@ -342,8 +342,8 @@ done
 
 ### Sign-in
 
-**C.11 oauth2-proxy restarts after Step 22, and the UI answers nothing.** *Reproduced (every run
-of this guide, until the rewrite reaches CoreDNS).* Cause: oauth2-proxy fetches the issuer's discovery document when it starts,
+**C.11 oauth2-proxy restarts after Step 22, and the UI answers nothing.** *Reproduced (by starting
+oauth2-proxy while Keycloak was down; the guide's own runs wait for CoreDNS first and do not hit it).* Cause: oauth2-proxy fetches the issuer's discovery document when it starts,
 and exits if it cannot; until the CoreDNS rewrite reaches CoreDNS, `keycloak.localhost` does not
 resolve inside the cluster. Fix: wait until Step 22's `keycloak-forward` block prints the same
 issuer from both sides; oauth2-proxy then starts on its next restart. Check it, and why its last
@@ -355,12 +355,12 @@ kubectl logs -n kagent deployment/kagent-oauth2-proxy --previous 2>/dev/null \
   | awk '/Failed to initialise/ && !f {print substr($0, 1, 160) "..."; f=1} END {if (!f) print "no failed start in the previous container"}'
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
-NAME                                   READY   STATUS    RESTARTS        AGE
-kagent-oauth2-proxy-84f7d89d6c-kmjdt   1/1     Running   2 (4m44s ago)   4m47s
-[2026/11/03 07:36:01] [main.go:73] ERROR: Failed to initialise OAuth2 Proxy: error initialising provider: could not create provider data: error building OIDC Pr...
+NAME                                   READY   STATUS    RESTARTS      AGE
+kagent-oauth2-proxy-667b5c655c-9bfs9   1/1     Running   3 (34s ago)   46s
+[2026/11/10 21:50:33] [main.go:73] ERROR: Failed to initialise OAuth2 Proxy: error initialising provider: could not create provider data: error building OIDC Pr...
 ```
 
 **C.12 The `kagent` CLI is refused after Step 22.** *Reproduced.* Cause: it sends a user ID rather
@@ -388,8 +388,8 @@ is an OpenAI model, and Step 14 runs OpenAI Codex instead of Claude Code.
 Each block below replaces the guide block it names, or for D.1 runs right after it, and every other
 block runs as the guide has it. Paste these in their place as you go.
 
-**Verified on:** kind cluster `agents` (kind 0.32.0, `kindest/node:v1.35.0`), 2026-11-03 17:08 to
-17:13 UTC: the guide run verbatim from Step 1 through Step 14 with the blocks below in place of the ones they name
+**Verified on:** kind cluster `agents` (kind 0.32.0, `kindest/node:v1.35.0`), 2026-11-10 21:09 to
+21:25 UTC: the guide run verbatim from Step 1 through Step 14 with the blocks below in place of the ones they name
 (`auto-build/run.sh --attachment docs/attachments.md --part d --to d-step-14-codex-turn`). Isolate,
 Scale and Validate were not run on OpenAI; D.7 lists what they name.
 
@@ -403,7 +403,7 @@ export OPENAI_API_KEY='<your-openai-api-key>'
 export MODEL=gpt-5.4-mini
 
 # The Codex runtime image for Step 14, pinned by digest: the one the kagent chart ships.
-export CODEX_HARNESS_IMAGE=ghcr.io/kagent-dev/kagent/codex-harness:1.0.0-rc1@sha256:c26d94cc976a9388a77687d4dc932d4cb8e5f814e762ea7fd47cf7167bb30f97
+export CODEX_HARNESS_IMAGE=ghcr.io/kagent-dev/kagent/codex-harness:1.0.0@sha256:7da600c1bc342b31bccb281dd9a48c6bdbf33d80a20f89e69128f052858fe9f3
 ```
 
 You need egress from the cluster to `api.openai.com` in place of `api.anthropic.com`.
@@ -509,7 +509,7 @@ echo -n "consumer key: "; curl -sS http://127.0.0.1:18081/v1/responses \
 kill $GW_PF; wait $GW_PF 2>/dev/null || true
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
 no key:       401
@@ -549,7 +549,7 @@ rm -rf "$KAGENT_CLI_DIR"
 }
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
 kagent installed successfully
@@ -569,7 +569,7 @@ held=$(kubectl get secret kagent-openai -n kagent -o jsonpath='{.data.OPENAI_API
 unset held
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
 OpenAI gpt-5.4-mini http://agentgateway-proxy.agentgateway-system.svc.cluster.local/v1 responses kagent-openai
@@ -599,13 +599,13 @@ kubectl logs -n agentgateway-system deployment/agentgateway-proxy --since=10m \
   | tr ' ' '\n' | grep -E '^(route|src.addr|http.status|gen_ai.usage.input_tokens|gen_ai.usage.output_tokens|endpoint)='
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
-atenet-egress: 10.244.0.20
+atenet-egress: 10.244.0.18
 route=agentgateway-system/openai-responses
 endpoint=api.openai.com:443
-src.addr=10.244.0.20:51492
+src.addr=10.244.0.18:54994
 http.status=200
 gen_ai.usage.input_tokens=889
 gen_ai.usage.output_tokens=7
@@ -632,15 +632,15 @@ echo "$TRACE" | jq -r '.data[0] as $t | $t.spans[]
 kill $JAEGER_PF; wait $JAEGER_PF 2>/dev/null || true
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
-trace 9c7ba5ac838e2b0fe1099933cb48a852: 27 spans
-kagent-controller	POST /agents/	1694 ms
-assistant	invoke_agent assistant	1348 ms
-assistant	generate_content gpt-5.4-mini	1346 ms
-agentgateway-proxy	POST /v1/responses/*	1334 ms
-agentgateway-proxy	POST api.openai.com:443	550 ms
+trace 0974d684b38c74dd31135376c3f8741d: 27 spans
+kagent-controller	POST /agents/	1396 ms
+assistant	invoke_agent assistant	1030 ms
+assistant	generate_content gpt-5.4-mini	1027 ms
+agentgateway-proxy	POST /v1/responses/*	1014 ms
+agentgateway-proxy	POST api.openai.com:443	633 ms
 -- the gateway's span:
 gen_ai.request.model=gpt-5.4-mini
 gen_ai.usage.input_tokens=887
@@ -685,7 +685,7 @@ EOF
 kubectl wait agent/assistant-codex -n kagent --for=condition=Ready --timeout=300s
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
 harness.api.kagent.dev/codex created
@@ -703,10 +703,10 @@ kubectl-ate get egress-policy "session-${CODEX_CONTEXT}" --atespace kagent -o js
   | jq -r '.rules[] | to_entries[0] | "\(.key)\t\(.value.hostnames[0]):\(.value.ports.numbers[0])\t\([.value.effects.replaceHeaders[]? | "\(.header) <- \(.credentialUri // "actor JWT, audience \(.actorJwt.audiences | join(",")), \(.actorJwt.expirationSeconds)s")"] | join(", "))"'
 ```
 
-**Verified on 2026-11-03:**
+**Verified on 2026-11-10:**
 
 ```text
-TASK_STATE_COMPLETED	01a1a266-ed88-7a93-858a-5aa68d694e10	codex harness
+TASK_STATE_COMPLETED	01a1c75a-3684-7cf3-ae6a-339dd657d934	codex harness
 http	agentgateway-proxy.agentgateway-system.svc.cluster.local:80	authorization <- ate-secret://k8s.io/default/kagent/kagent-openai/OPENAI_API_KEY
 http	jaeger.observability.svc.cluster.local:4317	
 http	kagent-controller.kagent.svc.cluster.local:8083	authorization <- actor JWT, audience kagent-runtime, 300s
