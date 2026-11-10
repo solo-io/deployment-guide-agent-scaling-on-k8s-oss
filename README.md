@@ -3,10 +3,6 @@
 A validated quick start for running agents on **Agent Substrate** under **kagent**, with every
 model and tool call they make going through **agentgateway**. Every component is open source.
 
-> [!NOTE]
-> This guide is being written. The steps below are its outline; a step is complete when it has
-> commands and output captured from a live cluster.
-
 ---
 
 ## The problem this solves
@@ -106,6 +102,7 @@ Each certified state of the guide is tagged:
 
 | Tag | Certified against |
 |---|---|
+| `certified-v1.0.0` | kagent 1.0.0, Agent Substrate v1.0.0 and agentgateway v1.7.0, in four modes, with OpenAI (Attachment D) verified through Step 14 |
 | `certified-rc1` | kagent 1.0.0-rc1, Agent Substrate v1.0.0-rc1 and agentgateway v1.7.0, in four modes, with OpenAI (Attachment D) verified through Step 14 |
 
 The guide documents a validated deployment at a point in time. It does not cover upgrade paths
